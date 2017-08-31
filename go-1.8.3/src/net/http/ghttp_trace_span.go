@@ -1,12 +1,15 @@
 package http
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	// "encoding/hex"
 )
 
 var (
@@ -42,7 +45,6 @@ type annotation struct {
 // error: timeout
 // db.instance: db name, db.statement:sql
 // db.type	全小写，"mysql", "cassandra", "hbase", or "redis"
-// [language].xx.xx:	针对于不同语言的一些自定义的内容, exp. php.db.source
 type binAnnotation struct {
 	Endpoint endpoint `json:"endpoint"`
 	Key      string   `json:"key"`
@@ -51,22 +53,22 @@ type binAnnotation struct {
 
 //
 type traceSpan struct {
-	TraceId       string          `json:"traceId"`   // required
-	ParentId      string          `json:"parentId"`  // required
-	SpanId        string          `json:"id"`        // required
-	Name          string          `json:"name"`      // span name, like get, default unknown, in mysql is func name
-	Path          string          `json:"path"`      // go src file line?
-	Timestamp     int64           `json:"timestamp"` // req start time
-	Duration      int64           `json:"duration"`  // span use time
-	Version       string          `json:"version"`   // go 1.8.3
+	TraceId       string          `json:"traceId"`            // required
+	ParentId      string          `json:"parentId,omitempty"` // required
+	SpanId        string          `json:"id"`                 // required
+	Name          string          `json:"name"`               // span name, like get, default unknown, in mysql is func name
+	Path          string          `json:"path"`               // go src file line?
+	Timestamp     int64           `json:"timestamp"`          // req start time
+	Duration      int64           `json:"duration"`           // span use time
+	Version       string          `json:"version"`            // go 1.8.3
 	Annotation    []annotation    `json:"annotations"`
 	BinAnnotation []binAnnotation `json:"binaryAnnotations"`
 	childSpans    []*traceSpan    `json:"-"`
 	flags         string          `json:"-"`
 	isSample      bool            `json:"-"`
 	isRecvReq     bool            `json:"-"`
-	// next          *traceSpan      `json:"-"`
-	// prev          *traceSpan      `json:"-"`
+	gid           int64           `json:"-"`
+	sync.Mutex    `json:"-"`
 }
 
 // 从 header 设置 span
@@ -162,32 +164,20 @@ func newTraceSpan() *traceSpan {
 
 // 把s2加到s1后面
 func (s *traceSpan) addChildSpan(s2 *traceSpan) {
+	s.Lock()
+	defer s.Unlock()
 	for _, v := range s.childSpans {
 		if v.SpanId == s2.SpanId {
 			return
 		}
 	}
 	s.childSpans = append(s.childSpans, s2)
-	// if s.next != nil {
-	// s2.next = s.next
-	// s.next.prev = s2
-	// }
-	// s.next = s2
-	// s2.prev = s
-}
-
-// 从链表中删除自己
-func (s *traceSpan) rmSelf() {
-	// for idx, v := range s.childSpans {
-	// if v.SpanId == s.SpanId {
-	// s.childSpans = append(s.childSpans[:idx], s.childSpans[idx+1:]...)
-	// }
-	// }
 }
 
 //
 func genSpanId() string {
-	return fmt.Sprintf("spanid-%d", time.Now().UnixNano())
+	t := time.Now().UnixNano()
+	return fmt.Sprintf("%x", t)
 }
 
 //
@@ -242,4 +232,52 @@ func initLocalIpv4() {
 			}
 		}
 	}
+}
+
+//
+var (
+	spansChan = make(chan *traceSpan, 1000)
+)
+
+func logTrace(span *traceSpan) {
+	spansChan <- span
+}
+
+func init() {
+
+	go func() {
+		traceSpanCache := [1024]*traceSpan{}
+		idx := 0
+		t := time.NewTicker(time.Second * 10)
+
+		flushFunc := func() {
+			if idx <= 0 {
+				return
+			}
+			if b, err := json.Marshal(traceSpanCache[:idx]); err == nil {
+				if f, err := os.Create(fmt.Sprintf("./trace_%d.txt", os.Getpid())); err == nil {
+					f.Write(b)
+					f.Close()
+				} else {
+					panic(err)
+				}
+				idx = 0
+			} else {
+				panic(err)
+			}
+		}
+
+		for {
+			select {
+			case span := <-spansChan:
+				if idx >= 1024 {
+					flushFunc()
+				}
+				traceSpanCache[idx] = span
+				idx++
+			case <-t.C:
+				flushFunc()
+			}
+		}
+	}()
 }

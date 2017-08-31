@@ -6,8 +6,93 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 )
 
+//
+type spanSlot struct {
+	spans []*traceSpan
+	sync.Mutex
+}
+
+const (
+	spanCellSize      = 1024
+	spanExpireTimeSec = 240 // 4 min
+)
+
+type SpanTable [spanCellSize]spanSlot
+
+//
+var (
+	spanTable        = SpanTable{} // [spanCellSize]spanSlot{}
+	scanSpanIdx      = 0
+	lastScanSpanTime = int64(0)
+)
+
+//
+func (t *SpanTable) addSpan(gid int64, span *traceSpan) {
+	idx := gid % spanCellSize
+	t[idx].Lock()
+	if t[idx].spans == nil {
+		t[idx].spans = []*traceSpan{}
+	}
+
+	for i, s := range t[idx].spans {
+		if s.gid == gid {
+			t[idx].spans[i] = span
+			t[idx].Unlock()
+			return
+		}
+	}
+	span.gid = gid
+	t[idx].spans = append(t[idx].spans, span)
+	t[idx].Unlock()
+
+	t.exprieSpan()
+}
+
+// span
+func (t *SpanTable) getSpan(gid int64) (ret *traceSpan) {
+	ret = nil
+	idx := gid % spanCellSize
+	t[idx].Lock()
+	if t[idx].spans != nil {
+		for _, span := range t[idx].spans {
+			if span.gid == gid {
+				ret = span
+				break
+			}
+		}
+	}
+	t[idx].Unlock()
+	return
+}
+
+//
+func (t *SpanTable) exprieSpan() {
+	now := time.Now().UnixNano()
+	if now-lastScanSpanTime < 1e6*60 {
+		return
+	}
+	lastScanSpanTime = now
+	idx := scanSpanIdx % spanCellSize
+	scanSpanIdx++
+
+	spanTable[idx].Lock()
+	defer spanTable[idx].Unlock()
+	if spanTable[idx].spans == nil {
+		return
+	}
+
+	for i := 0; i < len(spanTable[idx].spans); i++ {
+		if now-spanTable[idx].spans[i].Timestamp > 1e6*240 {
+			spanTable[idx].spans = append(spanTable[idx].spans[:i], spanTable[idx].spans[:i+1]...)
+			i--
+		}
+	}
+}
+
+/*
 //
 var (
 	spansMap gidSpanMapTyp = gidSpanMapTyp{spans: make(map[int64]*traceSpan)}
@@ -39,6 +124,7 @@ func (m *gidSpanMapTyp) GetSpan(gid int64) *traceSpan {
 	}
 	return nil
 }
+*/
 
 // 从协程链里找到接受req的协程
 func getSpanByPG() *traceSpan {
@@ -48,7 +134,8 @@ func getSpanByPG() *traceSpan {
 	n := runtime.Getgpid(gid, pgids)
 	for i := 0; i < n; i++ {
 		pid := pgids[i]
-		if span := spansMap.GetSpan(pid); span != nil {
+		// if span := spansMap.GetSpan(pid); span != nil {
+		if span := spanTable.getSpan(pid); span != nil {
 			if span.isRecvReq {
 				return span
 			}
@@ -81,7 +168,8 @@ func onHttpProcRecvReq(req *Request) *traceSpan {
 
 	// add to map
 	gid := runtime.Getgid()
-	spansMap.AddSpan(gid, span)
+	// spansMap.AddSpan(gid, span)
+	spanTable.addSpan(gid, span)
 	return span
 }
 
@@ -97,6 +185,7 @@ func onHttpSendResp(resp *response, span *traceSpan) {
 		b, _ := json.MarshalIndent(span, "", "\t")
 		fmt.Println(string(b))
 
+		logTrace(span)
 	} else {
 		span := newTraceSpan()
 		span.fromHeader(resp.req.Header)
@@ -116,6 +205,7 @@ func onHttpServerErr(req *Request, span *traceSpan, err error) {
 
 	b, _ := json.MarshalIndent(span, "", "\t")
 	fmt.Println(string(b))
+	logTrace(span)
 }
 
 // ------------------------------------------------------------------------------------
@@ -157,6 +247,8 @@ func onHttpRecvResp(resp *Response, span *traceSpan) {
 
 	b, _ := json.MarshalIndent(span, "", "\t")
 	fmt.Println(string(b))
+
+	logTrace(span)
 }
 
 //
@@ -169,6 +261,7 @@ func onHttpClientErr(req *Request, span *traceSpan, err error) {
 
 	b, _ := json.MarshalIndent(span, "", "\t")
 	fmt.Println(string(b))
+	logTrace(span)
 }
 
 //
