@@ -6,9 +6,9 @@ const (
 )
 
 var (
-	gpCells        [cellSize]gpCell = [cellSize]gpCell{}
-	lastCellsCheck int64
-	curIdx         = 0
+	gpCells       [cellSize]gpCell = [cellSize]gpCell{}
+	scanGLastTime int64
+	curIdx        = 0
 )
 
 //
@@ -73,12 +73,12 @@ func Getgpid(gid int64, rlt []int64) int {
 }
 
 //
-func checkGCellsValid() {
+func scanGCellsValid() {
 	now := nanotime()
-	if now-lastCellsCheck < clearInterNano {
+	if now-scanGLastTime < clearInterNano {
 		return
 	}
-	lastCellsCheck = now
+	scanGLastTime = now
 
 	idx := curIdx % cellSize
 	curIdx++
@@ -100,7 +100,7 @@ func checkGCellsValid() {
 	unlock(&gpCells[idx].lock)
 }
 
-func DumpGpCall(fun func(gid, pid, nano, val int64)) {
+func DumpGpCells(fun func(gid, pid, nano, val int64)) {
 	for i := 0; i < cellSize; i++ {
 		lock(&gpCells[i].lock)
 		if gpCells[i].infos != nil {
@@ -116,7 +116,7 @@ func DumpGpCall(fun func(gid, pid, nano, val int64)) {
 func onGStartHook(ng, pg *g) {
 	idx := ng.goid % cellSize
 	gpCells[idx].add(ng.goid, pg.goid)
-	checkGCellsValid()
+	scanGCellsValid()
 }
 
 //

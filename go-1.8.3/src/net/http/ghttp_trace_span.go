@@ -255,7 +255,10 @@ func init() {
 				return
 			}
 			if b, err := json.Marshal(traceSpanCache[:idx]); err == nil {
-				if f, err := os.Create(fmt.Sprintf("./trace_%d.txt", os.Getpid())); err == nil {
+
+				if f, err := os.OpenFile(fmt.Sprintf("./trace_%d.txt", os.Getpid()),
+					os.O_APPEND|os.O_RDWR|os.O_CREATE,
+					0755); err == nil {
 					f.Write(b)
 					f.Close()
 				} else {

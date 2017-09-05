@@ -27,7 +27,12 @@ var (
 	spanTable        = SpanTable{} // [spanCellSize]spanSlot{}
 	scanSpanIdx      = 0
 	lastScanSpanTime = int64(0)
+	enableHttpTrace  = true
 )
+
+func SetHttpTrace(enable bool) {
+	enableHttpTrace = enable
+}
 
 //
 func (t *SpanTable) addSpan(gid int64, span *traceSpan) {
@@ -147,6 +152,9 @@ func getSpanByPG() *traceSpan {
 // 接受请求
 // 从 recv 的 req 里解析span，记录下来,  SR
 func onHttpProcRecvReq(req *Request) *traceSpan {
+	if !enableHttpTrace {
+		return nil
+	}
 	span := newTraceSpan()
 	span.fromHeader(req.Header)
 	span.Path = req.URL.String()
@@ -176,6 +184,9 @@ func onHttpProcRecvReq(req *Request) *traceSpan {
 // 相应接受请求
 // 发送 respone 给请求方, SS
 func onHttpSendResp(resp *response, span *traceSpan) {
+	if !enableHttpTrace {
+		return
+	}
 	// span := getSpanByPG()
 	if span != nil {
 		ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: 80}
@@ -197,6 +208,9 @@ func onHttpSendResp(resp *response, span *traceSpan) {
 
 //
 func onHttpServerErr(req *Request, span *traceSpan, err error) {
+	if !enableHttpTrace {
+		return
+	}
 	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: 80}
 	span.addBinAnnotation(ep, "error", err.Error())
 	span.Duration = getTraceTime() - span.Timestamp
@@ -214,6 +228,9 @@ func onHttpServerErr(req *Request, span *traceSpan, err error) {
 // 接受回应
 // 发送 request 前，记录道span, CS
 func onHttpSendReq(req *Request) *traceSpan {
+	if !enableHttpTrace {
+		return nil
+	}
 	parentSpan := getSpanByPG()
 	span := newTraceSpan()
 	span.SpanId = genSpanId()
@@ -240,6 +257,9 @@ func onHttpSendReq(req *Request) *traceSpan {
 
 // 接收到 respone, CR
 func onHttpRecvResp(resp *Response, span *traceSpan) {
+	if !enableHttpTrace {
+		return
+	}
 	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: 80}
 	span.addAnnotation(ep, getTraceTime(), "cr")
 	span.addBinAnnotation(ep, "http.status_code", strconv.Itoa(resp.StatusCode))
@@ -253,6 +273,9 @@ func onHttpRecvResp(resp *Response, span *traceSpan) {
 
 //
 func onHttpClientErr(req *Request, span *traceSpan, err error) {
+	if !enableHttpTrace {
+		return
+	}
 	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: 80}
 	span.addBinAnnotation(ep, "error", err.Error())
 	span.Duration = getTraceTime() - span.Timestamp
