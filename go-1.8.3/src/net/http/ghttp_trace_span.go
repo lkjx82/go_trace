@@ -68,6 +68,7 @@ type traceSpan struct {
 	isSample      bool            `json:"-"`
 	isRecvReq     bool            `json:"-"`
 	gid           int64           `json:"-"`
+	localPort     int16           `json:"-"` // for server
 	sync.Mutex    `json:"-"`
 }
 
@@ -195,10 +196,11 @@ func getAddrFromRespHeader(h Header) (ip string, port int16) {
 //
 func getAddrFromString(addr string) (ip string, port int16) {
 	s := strings.Split(addr, ":")
+	fmt.Printf("addrs : %##v", s)
 	ip = s[0]
 	port = 80
 	if len(s) > 1 {
-		if port64, err := strconv.ParseInt(s[1], 10, 16); err != nil {
+		if port64, err := strconv.ParseInt(s[1], 10, 16); err == nil {
 			port = int16(port64)
 		}
 	}
@@ -256,7 +258,7 @@ func init() {
 			}
 			if b, err := json.Marshal(traceSpanCache[:idx]); err == nil {
 
-				if f, err := os.OpenFile(fmt.Sprintf("./trace_%d.txt", os.Getpid()),
+				if f, err := os.OpenFile(fmt.Sprintf("./trace_%s_%d.txt", time.Now().Format("2006-01-02"), os.Getpid()),
 					os.O_APPEND|os.O_RDWR|os.O_CREATE,
 					0755); err == nil {
 					f.Write(b)

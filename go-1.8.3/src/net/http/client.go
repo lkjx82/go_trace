@@ -494,6 +494,7 @@ func (c *Client) Do(req *Request) (*Response, error) {
 	if req.URL == nil {
 		req.closeBody()
 		err := errors.New("http: nil Request.URL")
+		// lbh trace
 		onHttpClientErr(req, span, err)
 		return nil, err
 	}
@@ -524,6 +525,7 @@ func (c *Client) Do(req *Request) (*Response, error) {
 			Err: err,
 		}
 
+		// lbh trace
 		onHttpClientErr(req, span, errRet)
 		return errRet
 		// return &url.Error{

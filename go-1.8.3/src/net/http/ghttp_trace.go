@@ -90,46 +90,12 @@ func (t *SpanTable) exprieSpan() {
 	}
 
 	for i := 0; i < len(spanTable[idx].spans); i++ {
-		if now-spanTable[idx].spans[i].Timestamp > 1e6*240 {
+		if now-spanTable[idx].spans[i].Timestamp > 1e9*240 {
 			spanTable[idx].spans = append(spanTable[idx].spans[:i], spanTable[idx].spans[:i+1]...)
 			i--
 		}
 	}
 }
-
-/*
-//
-var (
-	spansMap gidSpanMapTyp = gidSpanMapTyp{spans: make(map[int64]*traceSpan)}
-)
-
-// map[gid]*span
-type gidSpanMapTyp struct {
-	sync.Mutex
-	spans map[int64]*traceSpan
-}
-
-// add span
-func (m *gidSpanMapTyp) AddSpan(gid int64, span *traceSpan) {
-	m.Lock()
-	if _, ok := m.spans[gid]; ok {
-		delete(m.spans, gid)
-		panic(fmt.Sprintf("不应该有的Span %d", gid))
-	}
-	m.spans[gid] = span
-	m.Unlock()
-}
-
-// get span from map
-func (m *gidSpanMapTyp) GetSpan(gid int64) *traceSpan {
-	m.Lock()
-	defer m.Unlock()
-	if span, ok := m.spans[gid]; ok {
-		return span
-	}
-	return nil
-}
-*/
 
 // 从协程链里找到接受req的协程
 func getSpanByPG() *traceSpan {
@@ -151,27 +117,32 @@ func getSpanByPG() *traceSpan {
 
 // 接受请求
 // 从 recv 的 req 里解析span，记录下来,  SR
-func onHttpProcRecvReq(req *Request) *traceSpan {
+func onHttpProcRecvReq(resp *response) *traceSpan {
 	if !enableHttpTrace {
 		return nil
 	}
 	span := newTraceSpan()
-	span.fromHeader(req.Header)
-	span.Path = req.URL.String()
-	span.Name = req.Method
+	span.fromHeader(resp.req.Header)
+	span.Path = resp.req.URL.String()
+	span.Name = resp.req.Method
 
 	// sr
-	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: 80}
+	// resp.conn.server.Addr()
+	locAddr, port := getAddrFromString(resp.conn.rwc.LocalAddr().String())
+	span.localPort = port
+	fmt.Println(resp.conn.rwc.LocalAddr().String(), "  ", resp.conn.rwc.LocalAddr().Network(), locAddr, " : ", span.localPort)
+
+	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: port}
 	span.addAnnotation(ep, getTraceTime(), "sr")
 	span.isRecvReq = true
 
 	// url, method
-	span.addBinAnnotation(ep, "http.url", req.URL.String())
-	span.addBinAnnotation(ep, "http.method", req.Method)
+	span.addBinAnnotation(ep, "http.url", "http://"+resp.req.Host+resp.req.URL.String())
+	span.addBinAnnotation(ep, "http.method", resp.req.Method)
 
 	// add ca
 	epRemote := &endpoint{ServiceName: execName}
-	epRemote.Ipv4, epRemote.Port = getAddrFromString(req.RemoteAddr)
+	epRemote.Ipv4, epRemote.Port = getAddrFromString(resp.req.RemoteAddr)
 	span.addBinAnnotation(epRemote, "ca", "true")
 
 	// add to map
@@ -189,7 +160,7 @@ func onHttpSendResp(resp *response, span *traceSpan) {
 	}
 	// span := getSpanByPG()
 	if span != nil {
-		ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: 80}
+		ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: span.localPort}
 		span.addAnnotation(ep, getTraceTime(), "ss")
 		span.Duration = getTraceTime() - span.Timestamp
 
@@ -204,14 +175,17 @@ func onHttpSendResp(resp *response, span *traceSpan) {
 		span.Name = resp.req.Method
 		panic("not here")
 	}
+
+	// fmt.Printf("req: \n%##v\n%##v\n", resp, resp.req.URL)
+	// fmt.Printf("resp: \n%##v\n%##v\n", resp, resp.Header)
 }
 
 //
-func onHttpServerErr(req *Request, span *traceSpan, err error) {
+func onHttpServerErr(resp *response, span *traceSpan, err error) {
 	if !enableHttpTrace {
 		return
 	}
-	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: 80}
+	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: span.localPort}
 	span.addBinAnnotation(ep, "error", err.Error())
 	span.Duration = getTraceTime() - span.Timestamp
 
@@ -288,3 +262,36 @@ func onHttpClientErr(req *Request, span *traceSpan, err error) {
 }
 
 //
+/*
+//
+var (
+	spansMap gidSpanMapTyp = gidSpanMapTyp{spans: make(map[int64]*traceSpan)}
+)
+
+// map[gid]*span
+type gidSpanMapTyp struct {
+	sync.Mutex
+	spans map[int64]*traceSpan
+}
+
+// add span
+func (m *gidSpanMapTyp) AddSpan(gid int64, span *traceSpan) {
+	m.Lock()
+	if _, ok := m.spans[gid]; ok {
+		delete(m.spans, gid)
+		panic(fmt.Sprintf("不应该有的Span %d", gid))
+	}
+	m.spans[gid] = span
+	m.Unlock()
+}
+
+// get span from map
+func (m *gidSpanMapTyp) GetSpan(gid int64) *traceSpan {
+	m.Lock()
+	defer m.Unlock()
+	if span, ok := m.spans[gid]; ok {
+		return span
+	}
+	return nil
+}
+*/

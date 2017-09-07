@@ -1762,12 +1762,6 @@ func (c *conn) serve(ctx context.Context) {
 	for {
 		w, err := c.readRequest(ctx)
 
-		// lbh trace
-		// span * traceSpan = nil
-		// if w != nil {
-		// span := onHttpProcRecvReq(w.req)
-		// }
-
 		if c.r.remain != c.server.initialReadLimitSize() {
 			// If we read any bytes off the wire, we're active.
 			c.setState(c.rwc, StateActive)
@@ -1787,8 +1781,8 @@ func (c *conn) serve(ctx context.Context) {
 
 				// lbh trace
 				if w != nil {
-					span := onHttpProcRecvReq(w.req)
-					onHttpServerErr(w.req, span, err)
+					span := onHttpProcRecvReq(w)
+					onHttpServerErr(w, span, err)
 				}
 				return
 			}
@@ -1807,8 +1801,8 @@ func (c *conn) serve(ctx context.Context) {
 
 			// lbh trace
 			if w != nil {
-				span := onHttpProcRecvReq(w.req)
-				onHttpServerErr(w.req, span, err)
+				span := onHttpProcRecvReq(w)
+				onHttpServerErr(w, span, err)
 			}
 			// onHttpServerErr(w.req, span, errors.New(publicErr+errorHeaders+publicErr))
 
@@ -1840,7 +1834,7 @@ func (c *conn) serve(ctx context.Context) {
 		}
 
 		// lbh trace
-		span := onHttpProcRecvReq(w.req)
+		span := onHttpProcRecvReq(w)
 
 		// HTTP cannot have multiple simultaneous active requests.[*]
 		// Until the server replies to this request, it can't read another,
@@ -1852,12 +1846,13 @@ func (c *conn) serve(ctx context.Context) {
 		serverHandler{c.server}.ServeHTTP(w, w.req)
 		w.cancelCtx()
 		if c.hijacked() {
+			// lbh trace
+			onHttpServerErr(w, span, ErrHijacked)
 			return
 		}
 		w.finishRequest()
 
 		// lbh trace
-		// onHttpServerErr(w.req, span, err)
 		onHttpSendResp(w, span)
 
 		if !w.shouldReuseConnection() {
