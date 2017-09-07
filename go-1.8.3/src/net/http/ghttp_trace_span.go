@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	// "encoding/hex"
 )
 
 var (
@@ -57,7 +56,7 @@ type traceSpan struct {
 	ParentId      string          `json:"parentId,omitempty"` // required
 	SpanId        string          `json:"id"`                 // required
 	Name          string          `json:"name"`               // span name, like get, default unknown, in mysql is func name
-	Path          string          `json:"path"`               // go src file line?
+	Path          string          `json:"path,omitempty"`     // go src file line?
 	Timestamp     int64           `json:"timestamp"`          // req start time
 	Duration      int64           `json:"duration"`           // span use time
 	Version       string          `json:"version"`            // go 1.8.3
@@ -196,7 +195,6 @@ func getAddrFromRespHeader(h Header) (ip string, port int16) {
 //
 func getAddrFromString(addr string) (ip string, port int16) {
 	s := strings.Split(addr, ":")
-	fmt.Printf("addrs : %##v", s)
 	ip = s[0]
 	port = 80
 	if len(s) > 1 {
@@ -286,3 +284,5 @@ func init() {
 		}
 	}()
 }
+
+//

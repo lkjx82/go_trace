@@ -1,8 +1,6 @@
 package http
 
 import (
-	"encoding/json"
-	"fmt"
 	"runtime"
 	"strconv"
 	"sync"
@@ -123,14 +121,11 @@ func onHttpProcRecvReq(resp *response) *traceSpan {
 	}
 	span := newTraceSpan()
 	span.fromHeader(resp.req.Header)
-	span.Path = resp.req.URL.String()
 	span.Name = resp.req.Method
 
 	// sr
-	// resp.conn.server.Addr()
-	locAddr, port := getAddrFromString(resp.conn.rwc.LocalAddr().String())
+	_, port := getAddrFromString(resp.conn.rwc.LocalAddr().String())
 	span.localPort = port
-	fmt.Println(resp.conn.rwc.LocalAddr().String(), "  ", resp.conn.rwc.LocalAddr().Network(), locAddr, " : ", span.localPort)
 
 	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: port}
 	span.addAnnotation(ep, getTraceTime(), "sr")
@@ -147,7 +142,6 @@ func onHttpProcRecvReq(resp *response) *traceSpan {
 
 	// add to map
 	gid := runtime.Getgid()
-	// spansMap.AddSpan(gid, span)
 	spanTable.addSpan(gid, span)
 	return span
 }
@@ -158,26 +152,19 @@ func onHttpSendResp(resp *response, span *traceSpan) {
 	if !enableHttpTrace {
 		return
 	}
-	// span := getSpanByPG()
 	if span != nil {
 		ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: span.localPort}
 		span.addAnnotation(ep, getTraceTime(), "ss")
 		span.Duration = getTraceTime() - span.Timestamp
 
-		b, _ := json.MarshalIndent(span, "", "\t")
-		fmt.Println(string(b))
-
 		logTrace(span)
 	} else {
 		span := newTraceSpan()
 		span.fromHeader(resp.req.Header)
-		span.Path = resp.req.RequestURI
+		// span.Path = resp.req.RequestURI
 		span.Name = resp.req.Method
 		panic("not here")
 	}
-
-	// fmt.Printf("req: \n%##v\n%##v\n", resp, resp.req.URL)
-	// fmt.Printf("resp: \n%##v\n%##v\n", resp, resp.Header)
 }
 
 //
@@ -191,8 +178,6 @@ func onHttpServerErr(resp *response, span *traceSpan, err error) {
 
 	span.addAnnotation(ep, getTraceTime(), "ss")
 
-	b, _ := json.MarshalIndent(span, "", "\t")
-	fmt.Println(string(b))
 	logTrace(span)
 }
 
@@ -208,7 +193,7 @@ func onHttpSendReq(req *Request) *traceSpan {
 	parentSpan := getSpanByPG()
 	span := newTraceSpan()
 	span.SpanId = genSpanId()
-	span.Path = req.URL.String()
+	// span.Path = req.URL.String()
 	span.Name = req.Method
 	span.Timestamp = getTraceTime()
 
@@ -239,9 +224,6 @@ func onHttpRecvResp(resp *Response, span *traceSpan) {
 	span.addBinAnnotation(ep, "http.status_code", strconv.Itoa(resp.StatusCode))
 	span.Duration = getTraceTime() - span.Timestamp
 
-	b, _ := json.MarshalIndent(span, "", "\t")
-	fmt.Println(string(b))
-
 	logTrace(span)
 }
 
@@ -256,42 +238,5 @@ func onHttpClientErr(req *Request, span *traceSpan, err error) {
 
 	span.addAnnotation(ep, getTraceTime(), "cr")
 
-	b, _ := json.MarshalIndent(span, "", "\t")
-	fmt.Println(string(b))
 	logTrace(span)
 }
-
-//
-/*
-//
-var (
-	spansMap gidSpanMapTyp = gidSpanMapTyp{spans: make(map[int64]*traceSpan)}
-)
-
-// map[gid]*span
-type gidSpanMapTyp struct {
-	sync.Mutex
-	spans map[int64]*traceSpan
-}
-
-// add span
-func (m *gidSpanMapTyp) AddSpan(gid int64, span *traceSpan) {
-	m.Lock()
-	if _, ok := m.spans[gid]; ok {
-		delete(m.spans, gid)
-		panic(fmt.Sprintf("不应该有的Span %d", gid))
-	}
-	m.spans[gid] = span
-	m.Unlock()
-}
-
-// get span from map
-func (m *gidSpanMapTyp) GetSpan(gid int64) *traceSpan {
-	m.Lock()
-	defer m.Unlock()
-	if span, ok := m.spans[gid]; ok {
-		return span
-	}
-	return nil
-}
-*/
