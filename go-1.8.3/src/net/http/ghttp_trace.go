@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"runtime"
 	"strconv"
 	"sync"
@@ -138,6 +139,8 @@ func onHttpProcRecvReq(resp *response) *traceSpan {
 	// add ca
 	epRemote := &endpoint{ServiceName: execName}
 	epRemote.Ipv4, epRemote.Port = getAddrFromString(resp.req.RemoteAddr)
+	fmt.Println("remote addr  ", resp.req.RemoteAddr)
+	fmt.Printf("epRemote : %##v\n", epRemote)
 	span.addBinAnnotation(epRemote, "ca", "true")
 
 	// add to map
@@ -198,16 +201,18 @@ func onHttpSendReq(req *Request) *traceSpan {
 	span.Timestamp = getTraceTime()
 
 	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: 80}
-	span.addAnnotation(ep, getTraceTime(), "cs")
 
 	if parentSpan != nil { // 找到 sr，就是 req 的 trace 的上层
 		span.fromParentSpan(parentSpan)
 		parentSpan.addChildSpan(span)
+		ep.Port = parentSpan.localPort
+		span.localPort = parentSpan.localPort
 	} else { // 找到
 		span.TraceId = genSpanId()
+		span.localPort = 80
 	}
+	span.addAnnotation(ep, getTraceTime(), "cs")
 	span.setHeader(req.Header)
-
 	span.addBinAnnotation(ep, "http.url", req.URL.String())
 	span.addBinAnnotation(ep, "http.method", req.Method)
 
@@ -219,7 +224,7 @@ func onHttpRecvResp(resp *Response, span *traceSpan) {
 	if !enableHttpTrace {
 		return
 	}
-	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: 80}
+	ep := &endpoint{Ipv4: localIpv4, ServiceName: execName, Port: span.localPort}
 	span.addAnnotation(ep, getTraceTime(), "cr")
 	span.addBinAnnotation(ep, "http.status_code", strconv.Itoa(resp.StatusCode))
 	span.Duration = getTraceTime() - span.Timestamp

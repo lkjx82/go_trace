@@ -29,7 +29,7 @@ const (
 type endpoint struct {
 	ServiceName string `json:"serviceName"` // require
 	Ipv4        string `json:"ipv4"`        // require
-	Port        int16  `json:"port"`        // require
+	Port        uint16 `json:"port"`        // require
 }
 
 //
@@ -67,7 +67,7 @@ type traceSpan struct {
 	isSample      bool            `json:"-"`
 	isRecvReq     bool            `json:"-"`
 	gid           int64           `json:"-"`
-	localPort     int16           `json:"-"` // for server
+	localPort     uint16          `json:"-"` // for server
 	sync.Mutex    `json:"-"`
 }
 
@@ -145,7 +145,7 @@ func (s *traceSpan) addBinAnnotation(ep *endpoint, key, value string) {
 }
 
 //
-func newEndpoint(srvName, ip string, port int16) *endpoint {
+func newEndpoint(srvName, ip string, port uint16) *endpoint {
 	return &endpoint{
 		ServiceName: srvName,
 		Ipv4:        ip,
@@ -187,19 +187,23 @@ func getTraceTime() int64 {
 }
 
 //
-func getAddrFromRespHeader(h Header) (ip string, port int16) {
-	addr := h.Get("Remote Address")
-	return getAddrFromString(addr)
-}
+// func getAddrFromRespHeader(h Header) (ip string, port int16) {
+// addr := h.Get("Remote Address")
+// return getAddrFromString(addr)
+// }
 
 //
-func getAddrFromString(addr string) (ip string, port int16) {
+func getAddrFromString(addr string) (ip string, port uint16) {
 	s := strings.Split(addr, ":")
 	ip = s[0]
-	port = 80
+	port = uint16(80)
+	fmt.Printf("getAddrFromString : %##v\n", s)
 	if len(s) > 1 {
-		if port64, err := strconv.ParseInt(s[1], 10, 16); err == nil {
-			port = int16(port64)
+		if port64, err := strconv.ParseUint(s[1], 10, 16); err == nil {
+			port = uint16(port64)
+			fmt.Println(port, port64)
+		} else {
+			fmt.Println(err, port, port64)
 		}
 	}
 	return
